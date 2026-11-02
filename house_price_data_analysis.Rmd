@@ -1,0 +1,272 @@
+---
+title: "Predicting Home Sale Prices from Living Space in King County, WA"
+author: "Adrian Cheung"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    toc: false
+    theme: flatly
+    highlight: tango
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE)
+library(tidyverse)
+```
+
+
+```{r load-data}
+house_data <- read_csv("C:\\Users\\Adrian\\Downloads\\kaggle_dataset\\kc_house_data.csv")
+
+
+house_data <- house_data %>%
+  filter(!is.na(price), !is.na(sqft_living), price > 0, sqft_living > 0)
+```
+
+
+---
+
+
+## Introduction
+
+
+The decision to purchase a property will be among the major financial commitments undertaken by a person in their lifetime, and for both buyer and seller, among the very first questions that will come up will be *How much does the size of the property contribute to its cost?* For both practical and academic interest, it will be crucial for us to know what affects the price of homes amid the very competitive housing market in King County, Washington, where one of America’s fastest-growing cities is located.
+
+
+Among the many factors influencing the price of homes, square footage may be one of the easiest to comprehend since there is always an implicit relationship between square feet and utility value. But how do we quantify this relationship?
+
+
+
+
+**Question of Interest:** Does the square footage of living space (`sqft_living`) serve as a statistically significant predictor of home sale price in King County, WA and if it does what is the 95% confidence interval for the expected increase in price for every additional 100 square feet of living space?
+
+
+**Thesis:**After the full assessment of the data that included more than 21,000 sales in King County between 2014 and 2015 we can safely say that square footage of living space does serve as a statistically significant predictor of home sale prices in the county. Each additional 100 square feet of living space is associated with an estimated increase of approximately **$28,000** in sale price and this relationship is statistically distinguishable from zero at any significance level.
+
+
+---
+
+
+## Background
+
+
+### Data Source
+
+
+Kaggle's *House Sales in King County, USA* is the collection which was officially originally compiled from King County's Department of Assessments public property transaction records that we are using for the purpose of our project.
+
+
+- **Source:** [https://www.kaggle.com/datasets/harlfoxem/housesalesprediction](https://www.kaggle.com/datasets/harlfoxem/housesalesprediction)
+- **Coverage:** Residential property sales recorded between May 2014 and May 2015
+- **Size:** `r nrow(house_data)` individual home sale transactions
+
+
+### Dataset Description
+
+
+The dataset contains 21 variables covering physical characteristics of the home, location, and sale conditions and one entry shows the sale of one house in the county.
+
+
+The two variables central to our analysis are:
+
+
+- **`price`** — Sale price of the home in USD (numeric, continuous). Our response variable as this is what we are trying to explain and predict.
+- **`sqft_living`** — Square footage of the interior living space (numeric, continuous). The explanatory variable  as this is what we believe drives price.
+
+
+Key summary statistics for these variables:
+
+
+```{r summary-stats}
+house_data %>%
+  summarise(
+    `Mean Price` = scales::dollar(mean(price)),
+    `Median Price` = scales::dollar(median(price)),
+    `Mean Sqft Living` = round(mean(sqft_living), 0),
+    `Median Sqft Living` = round(median(sqft_living), 0),
+    `Min Price` = scales::dollar(min(price)),
+    `Max Price` = scales::dollar(max(price))
+  ) %>%
+  knitr::kable(caption = "Summary Statistics for Sale Price and Living Space")
+```
+
+
+Considering the above dataset as a sample, it encompasses all instances of home sales in King County, WA between 2014 and 2015. Conclusions can be drawn about housing in King County, and cautiously extended to other suburbs and cities in the Pacific Northwest region.
+
+
+One point to note is that King County houses a broad spectrum of neighborhoods, from urban centers to rural regions, and the general price distribution is positively skewed owing to few homes with extremely high values.
+
+
+### Exploratory Visualization
+
+
+```{r scatterplot, fig.width=9, fig.height=6, fig.cap="Figure 1: Relationship between interior living space and home sale price in King County, WA (2014–2015). Each point represents one property sale. The blue line is the ordinary least squares regression fit with a 95% confidence band shaded in gray."}
+
+
+ggplot(house_data, aes(x = sqft_living, y = price)) +
+  geom_point(alpha = 0.15, color = "#2c7bb6", size = 0.8) +
+  geom_smooth(method = "lm", color = "#d7191c", linewidth = 1.2, fill = "#fdae61", alpha = 0.3) +
+  scale_y_continuous(labels = scales::dollar_format(scale = 1e-6, suffix = "M")) +
+  scale_x_continuous(labels = scales::comma) +
+  labs(
+    title = "Home Sale Price vs. Interior Living Space",
+    subtitle = "King County, WA — May 2014 to May 2015",
+    x = "Interior Living Space (sq ft)",
+    y = "Sale Price (USD, millions)",
+    caption = "Source: King County Department of Assessments via Kaggle"
+  ) +
+  theme_minimal(base_size = 13) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(color = "gray40"),
+    panel.grid.minor = element_blank()
+  )
+```
+
+
+**Figure 1** shows a definite positive correlation between living area and sale price, in which case the greater the living area, the higher the selling price. The regression equation indicates a definite increasing trend over all possible values of living area. Yet, there is considerable scattering, particularly at higher living areas – meaning that living area alone cannot account for differences in prices. Indeed, the presence of several unusually priced observations at the upper end (above $5 million) is expected to affect the dispersion of the observations.
+
+
+Nonetheless, the linear association is sufficiently pronounced to justify statistical analysis, as shown below.
+
+
+
+
+---
+
+
+## Statistical Analysis
+
+
+### Parameters of Interest
+
+
+Let $\beta_1$ denote the true population slope of the linear relationship between `sqft_living` and `price` — that is, the expected change in sale price (in USD) for each one-square-foot increase in living space, among all residential home sales in King County.
+
+
+We are also interested in $100 \cdot \beta_1$: the expected change in price for each **100 square foot** increase in living space, which is a more interpretable unit.
+
+
+### Hypotheses
+
+
+We try and test whether living space has any linear relationship with sale price:
+
+
+$$H_0: \beta_1 = 0 \quad \text{(living space has no linear effect on price)}$$
+$$H_A: \beta_1 \neq 0 \quad \text{(living space has a linear effect on price)}$$
+
+
+Using a significance level of $\alpha = 0.05$.
+
+
+### Checking Assumptions
+
+
+Simple linear regression requires four key assumptions: **linearity**, **independence**, **equal variance (homoscedasticity)**, and **normality of residuals**.
+
+
+```{r fit-model}
+model <- lm(price ~ sqft_living, data = house_data)
+```
+
+
+```{r assumption-plots, fig.width=10, fig.height=8, fig.cap="Figure 2: Regression diagnostic plots. Top-left: Residuals vs Fitted values (checks linearity and equal variance). Top-right: Normal Q-Q plot (checks normality of residuals). Bottom-left: Scale-Location plot. Bottom-right: Residuals vs Leverage (identifies influential observations)."}
+par(mfrow = c(2, 2), mar = c(4, 4, 3, 1))
+plot(model, which = 1, main = "Residuals vs Fitted", col = rgb(0.17, 0.48, 0.71, 0.2), pch = 20)
+plot(model, which = 2, main = "Normal Q-Q", col = rgb(0.17, 0.48, 0.71, 0.2), pch = 20)
+plot(model, which = 3, main = "Scale-Location", col = rgb(0.17, 0.48, 0.71, 0.2), pch = 20)
+plot(model, which = 5, main = "Residuals vs Leverage", col = rgb(0.17, 0.48, 0.71, 0.2), pch = 20)
+par(mfrow = c(1, 1))
+```
+
+
+**Linearity:** Figure 1 displays an approximate linear relationship; however, there is substantial scatter. Figure 2 does not display any clear systematic curved trend, thereby satisfying the assumption of linearity.
+
+
+**Independence:** Every row corresponds to an independent transaction of selling properties. There are no repeated observations on the same property. Therefore, the assumption of independence holds.
+
+
+**Constant Variance (Homoscedasticity):** Figure 3 displays a fan-shaped residual plot. As the residuals increase, their corresponding variance also increases. It is a **violation of the assumption of constant variance**. In our case, since we have a very large sample size (n > 21,000), the Central Limit Theorem guarantees that the coefficients are normally distributed. Hence, we are making a sacrifice here, which will be discussed in the Discussion section.
+
+
+**Residuals are Normally Distributed:** Figure 4 depicts fat tails, implying that the residuals are not perfectly normally distributed. However, since our sample size is n > 21,000, the Central Limit Theorem makes this violation insignificant for the slope.
+
+
+
+
+### Inference Results
+
+
+```{r model-output}
+model_summary <- summary(model)
+coefs <- coef(model_summary)
+ci <- confint(model, level = 0.95)
+
+
+slope <- coefs["sqft_living", "Estimate"]
+se    <- coefs["sqft_living", "Std. Error"]
+tstat <- coefs["sqft_living", "t value"]
+pval  <- coefs["sqft_living", "Pr(>|t|)"]
+ci_low  <- ci["sqft_living", "2.5 %"]
+ci_high <- ci["sqft_living", "97.5 %"]
+r2 <- model_summary$r.squared
+```
+
+
+```{r results-table}
+tibble(
+  Quantity = c(
+    "Estimated Slope (per 1 sq ft)",
+    "Estimated Price Change per 100 sq ft",
+    "Standard Error",
+    "Test Statistic (t)",
+    "P-value",
+    "95% CI for slope (per 1 sq ft)",
+    "95% CI scaled to per 100 sq ft",
+    "R-squared"
+  ),
+  Value = c(
+    scales::dollar(slope, accuracy = 0.01),
+    scales::dollar(slope * 100, accuracy = 1),
+    scales::dollar(se, accuracy = 0.01),
+    round(tstat, 2),
+    formatC(pval, format = "e", digits = 3),
+    paste0("(", scales::dollar(ci_low, accuracy = 0.01), ", ", scales::dollar(ci_high, accuracy = 0.01), ")"),
+    paste0("(", scales::dollar(ci_low * 100, accuracy = 1), ", ", scales::dollar(ci_high * 100, accuracy = 1), ")"),
+    round(r2, 4)
+  )
+) %>%
+  knitr::kable(caption = "Table 1: Linear Regression Results — price ~ sqft_living")
+```
+
+
+This implies that for every one square foot increase in the area of a home, the sale price increases by an average of **`r scales::dollar(slope, accuracy=0.01)`** dollars.
+
+
+When scaled to a more realistic measure, every additional **100 square feet** in the size of a home is predicted to increase the sale price by **`r scales::dollar(slope*100, accuracy=1)`** dollars.
+
+
+This means that the 95% confidence interval for a change in price due to a 100-square foot increase in area is between **(`r scales::dollar(ci_low*100, accuracy=1)`, `r scales::dollar(ci_high*100, accuracy=1)`)** dollars.
+
+
+Our p-value is less than $2.2 \times 10^{-16}$, which is less than the significance level of $\alpha = 0.05$. We thus **reject our null hypothesis** and accept that living space has a statistically significant effect on the sale price of homes.
+
+
+
+
+---
+
+
+### Interpreting the Results
+
+
+In other words: larger houses are associated with selling for considerably more money in King County, and we can pinpoint exactly how much more. Specifically, every 100 square feet increase in living space accounted, on average, for an approximate **`r scales::dollar(slope*100, accuracy=1)` difference in price**. We can say with 95% confidence that the actual amount lies somewhere between **`r scales::dollar(ci_low*100, accuracy=1)`** and **`r scales::dollar(ci_high*100, accuracy=1)`**.
+
+
+This extremely low p-value means there can be absolutely no mistake that the association between living space and prices is real and significant — living space is certainly a factor of importance when it comes to pricing in King County.
+
+
+A rather high R-squared of **`r round(r2, 3)`**, meaning that roughly **`r round(r2*100, 1)`% of price variance** is caused solely by living space, indicates that this variable is indeed an important predictor. However, since the proportion is far from one, a number of other variables contribute to price variance.
+
